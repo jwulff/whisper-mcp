@@ -1,10 +1,10 @@
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface ModelInfo {
   name: string;
@@ -100,10 +100,10 @@ export async function downloadModel(
     };
   }
 
-  // Download using curl
+  // Download using curl with safe argument passing
   try {
     console.error(`Downloading ${model} (${modelInfo.size})...`);
-    await execAsync(`curl -L "${downloadUrl}" -o "${modelPath}"`, {
+    await execFileAsync("curl", ["-L", downloadUrl, "-o", modelPath], {
       maxBuffer: 10 * 1024 * 1024,
     });
 

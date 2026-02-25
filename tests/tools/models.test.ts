@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 
 // Mock dependencies
 vi.mock("fs", () => ({
@@ -17,18 +17,29 @@ vi.mock("os", () => ({
 }));
 
 vi.mock("child_process", () => ({
-  exec: vi.fn(),
+  execFile: vi.fn(),
 }));
 
 vi.mock("util", () => ({
-  promisify: vi.fn((fn) => fn),
+  promisify: vi.fn((fn) => {
+    // execFile callback signature: (err, stdout, stderr)
+    // promisify should return { stdout, stderr }
+    return async (...args: unknown[]) => {
+      return new Promise((resolve, reject) => {
+        fn(...args, (err: Error | null, stdout: string, stderr: string) => {
+          if (err) reject(err);
+          else resolve({ stdout, stderr });
+        });
+      });
+    };
+  }),
 }));
 
 const mockedExistsSync = vi.mocked(fs.existsSync);
 const mockedMkdirSync = vi.mocked(fs.mkdirSync);
 const mockedStatSync = vi.mocked(fs.statSync);
 const mockedUnlinkSync = vi.mocked(fs.unlinkSync);
-const mockedExec = vi.mocked(exec);
+const mockedExecFile = vi.mocked(execFile);
 
 describe("models utility", () => {
   beforeEach(() => {
@@ -153,9 +164,11 @@ describe("models utility", () => {
 
     it("should create whisper directory if it doesn't exist", async () => {
       mockedExistsSync.mockReturnValue(false);
-      mockedExec.mockImplementation((_cmd, _opts, callback) => {
+      mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
         if (typeof callback === "function") {
-          callback(null, { stdout: "", stderr: "" } as never);
+          callback(null, "" as never, "" as never);
+        } else if (typeof _opts === "function") {
+          _opts(null, "" as never, "" as never);
         }
         return {} as never;
       });
@@ -187,14 +200,16 @@ describe("models utility", () => {
         // First call: check if already downloaded - false
         // Second call after download: check if file exists - true
         if (typeof path === "string" && path.includes("ggml-base.en.bin")) {
-          return mockedExec.mock.calls.length > 0;
+          return mockedExecFile.mock.calls.length > 0;
         }
         return false;
       });
 
-      mockedExec.mockImplementation((cmd, _opts, callback) => {
+      mockedExecFile.mockImplementation((cmd, _args, _opts, callback) => {
         if (typeof callback === "function") {
-          callback(null, { stdout: "", stderr: "" } as never);
+          callback(null, "" as never, "" as never);
+        } else if (typeof _opts === "function") {
+          _opts(null, "" as never, "" as never);
         }
         return {} as never;
       });
@@ -211,14 +226,16 @@ describe("models utility", () => {
     it("should delete file if download is too small", async () => {
       mockedExistsSync.mockImplementation((path) => {
         if (typeof path === "string" && path.includes("ggml-base.en.bin")) {
-          return mockedExec.mock.calls.length > 0;
+          return mockedExecFile.mock.calls.length > 0;
         }
         return false;
       });
 
-      mockedExec.mockImplementation((cmd, _opts, callback) => {
+      mockedExecFile.mockImplementation((cmd, _args, _opts, callback) => {
         if (typeof callback === "function") {
-          callback(null, { stdout: "", stderr: "" } as never);
+          callback(null, "" as never, "" as never);
+        } else if (typeof _opts === "function") {
+          _opts(null, "" as never, "" as never);
         }
         return {} as never;
       });
@@ -234,9 +251,11 @@ describe("models utility", () => {
     it("should throw error if download fails", async () => {
       mockedExistsSync.mockReturnValue(false);
 
-      mockedExec.mockImplementation((cmd, _opts, callback) => {
+      mockedExecFile.mockImplementation((cmd, _args, _opts, callback) => {
         if (typeof callback === "function") {
-          callback(new Error("Network error"), null as never);
+          callback(new Error("Network error"), null as never, null as never);
+        } else if (typeof _opts === "function") {
+          _opts(new Error("Network error"), null as never, null as never);
         }
         return {} as never;
       });
@@ -251,9 +270,11 @@ describe("models utility", () => {
     it("should throw error if file not found after download", async () => {
       mockedExistsSync.mockReturnValue(false);
 
-      mockedExec.mockImplementation((cmd, _opts, callback) => {
+      mockedExecFile.mockImplementation((cmd, _args, _opts, callback) => {
         if (typeof callback === "function") {
-          callback(null, { stdout: "", stderr: "" } as never);
+          callback(null, "" as never, "" as never);
+        } else if (typeof _opts === "function") {
+          _opts(null, "" as never, "" as never);
         }
         return {} as never;
       });
