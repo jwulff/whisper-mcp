@@ -1,6 +1,7 @@
 {
   "name": "whisper-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "mcpName": "io.github.jwulff/whisper-mcp",
   "description": "MCP server for local audio transcription using Whisper",
   "type": "module",
   "main": "dist/index.js",

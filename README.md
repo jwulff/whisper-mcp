@@ -1,198 +1,159 @@
-# Whisper MCP Server
+# MCP Registry
 
-A lightweight MCP (Model Context Protocol) server for local audio transcription using [whisper.cpp](https://github.com/ggerganov/whisper.cpp). There are [several Whisper MCP implementations](https://github.com/search?q=whisper+mcp&type=repositories) out there. This one is minimal and pairs with [apple-voice-memo-mcp](https://github.com/jwulff/apple-voice-memo-mcp) for a complete voice memo workflow.
+The MCP registry provides MCP clients with a list of MCP servers, like an app store for MCP servers.
 
-## Features
+📖 **[Full documentation](./docs)**
 
-- **Local transcription** - All processing happens on your machine
-- **Multiple models** - Choose from tiny, base, small, medium, or large models
-- **Various formats** - Supports wav, mp3, m4a, and other audio formats
-- **Timestamps** - Get transcriptions with or without timestamps
+## Development Status
 
-## Requirements
+> [!WARNING]  
+> The registry is under [active development](#development-status). The registry API spec is unstable and the official MCP registry database may be wiped at any time.
 
-- macOS (tested on Apple Silicon)
-- Node.js 18+
-- whisper-cpp: `brew install whisper-cpp`
-- ffmpeg: `brew install ffmpeg`
+**2025-09-04 update**: We're targeting a 'preview' go-live on 8th September. This may still be unstable and not provide durability guarantees, but is a step towards being more solidified. A general availability (GA) release will follow later.
 
-## Installation
+Current key maintainers:
+- **Adam Jones** (Anthropic) [@domdomegg](https://github.com/domdomegg)  
+- **Tadas Antanavicius** (PulseMCP) [@tadasant](https://github.com/tadasant)
+- **Toby Padilla** (GitHub) [@toby](https://github.com/toby)
 
-```bash
-npm install -g whisper-mcp
-```
+## Contributing
 
-Or run directly:
+We use multiple channels for collaboration - see [modelcontextprotocol.io/community/communication](https://modelcontextprotocol.io/community/communication).
 
-```bash
-npx whisper-mcp
-```
+Often (but not always) ideas flow through this pipeline:
 
-## Configuration
+- **[Discord](https://modelcontextprotocol.io/community/communication)** - Real-time community discussions
+- **[Discussions](https://github.com/modelcontextprotocol/registry/discussions)** - Propose and discuss product/technical requirements
+- **[Issues](https://github.com/modelcontextprotocol/registry/issues)** - Track well-scoped technical work  
+- **[Pull Requests](https://github.com/modelcontextprotocol/registry/pulls)** - Contribute work towards issues
 
-### Claude Desktop
+### Quick start:
 
-Add to your Claude Desktop config file:
+#### Pre-requisites
 
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Docker**
+- **Go 1.24.x** 
+- **golangci-lint v2.4.0**
 
-```json
-{
-  "mcpServers": {
-    "whisper-mcp": {
-      "command": "npx",
-      "args": ["-y", "whisper-mcp"]
-    }
-  }
-}
-```
-
-After editing, restart Claude Desktop.
-
-### Claude Code (CLI)
-
-For Claude Code, add to your project's `.mcp.json` file:
-
-```json
-{
-  "mcpServers": {
-    "whisper-mcp": {
-      "command": "npx",
-      "args": ["-y", "whisper-mcp"]
-    }
-  }
-}
-```
-
-Or for user-wide configuration, add to `~/.claude/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "whisper-mcp": {
-      "command": "npx",
-      "args": ["-y", "whisper-mcp"]
-    }
-  }
-}
-```
-
-**Tip**: Use `/mcp` in Claude Code to verify the server is connected.
-
-### Local Development Setup
-
-If running from source instead of npm:
-
-```json
-{
-  "mcpServers": {
-    "whisper-mcp": {
-      "command": "node",
-      "args": ["/path/to/whisper-mcp/dist/index.js"]
-    }
-  }
-}
-```
-
-### With Apple Voice Memos MCP
-
-For a complete voice memo workflow, use alongside apple-voice-memo-mcp:
-
-```json
-{
-  "mcpServers": {
-    "apple-voice-memo-mcp": {
-      "command": "npx",
-      "args": ["-y", "apple-voice-memo-mcp"]
-    },
-    "whisper-mcp": {
-      "command": "npx",
-      "args": ["-y", "whisper-mcp"]
-    }
-  }
-}
-```
-
-## MCP Tools
-
-### `transcribe_audio`
-
-Transcribe an audio file using Whisper.
-
-**Parameters:**
-- `file_path` (required): Absolute path to the audio file
-- `model` (optional): Model to use (tiny.en, base.en, small.en, medium.en, large). Default: base.en
-- `language` (optional): Language code. Default: en
-- `output_format` (optional): text, timestamps, or json. Default: text
-
-**Example:**
-```json
-{
-  "file_path": "/path/to/audio.m4a",
-  "model": "medium.en",
-  "output_format": "timestamps"
-}
-```
-
-### `list_whisper_models`
-
-List available Whisper models and their download status.
-
-**Returns:**
-```json
-{
-  "models": [
-    {
-      "name": "base.en",
-      "size": "142 MB",
-      "downloaded": true,
-      "path": "/Users/you/.whisper/ggml-base.en.bin"
-    }
-  ]
-}
-```
-
-### `download_whisper_model`
-
-Download a Whisper model for local use.
-
-**Parameters:**
-- `model` (required): Model to download (tiny.en, base.en, small.en, medium.en, large)
-
-## Models
-
-| Model | Size | Speed | Quality |
-|-------|------|-------|---------|
-| tiny.en | 75 MB | Fastest | Basic |
-| base.en | 142 MB | Fast | Good |
-| small.en | 466 MB | Medium | Better |
-| medium.en | 1.5 GB | Slow | Great |
-| large | 2.9 GB | Slowest | Best |
-
-Models are stored in `~/.whisper/`.
-
-## Workflow Example
-
-1. List your voice memos: `list_voice_memos`
-2. Get audio path: `get_audio` with memo ID
-3. Transcribe: `transcribe_audio` with the file path
-4. Save to your vault
-
-## Development
+#### Running the server
 
 ```bash
-# Clone and install
-git clone https://github.com/jwulff/whisper-mcp.git
-cd whisper-mcp
-npm install
-
-# Build
-npm run build
-
-# Test with MCP inspector
-npm run inspector
+# Start full development environment
+make dev-compose
 ```
 
-## License
+This starts the registry at [`localhost:8080`](http://localhost:8080) with PostgreSQL and seed data. It can be configured with environment variables in [docker-compose.yml](./docker-compose.yml) - see [.env.example](./.env.example) for a reference.
 
-MIT
+<details>
+<summary>Alternative: Local setup without Docker</summary>
+
+**Prerequisites:**
+- PostgreSQL running locally
+- Go 1.24.x installed
+
+```bash
+# Build and run locally
+make build
+make dev-local
+```
+
+The service runs on [`localhost:8080`](http://localhost:8080) by default. This can be configured with environment variables in `.env` - see [.env.example](./.env.example) for a reference.
+
+</details>
+
+<details>
+<summary>Alternative: Running a pre-built Docker image</summary>
+
+Pre-built Docker images are automatically published to GitHub Container Registry:
+
+```bash
+# Run latest stable release
+docker run -p 8080:8080 ghcr.io/modelcontextprotocol/registry:latest
+
+# Run latest from main branch (continuous deployment)
+docker run -p 8080:8080 ghcr.io/modelcontextprotocol/registry:main
+
+# Run specific release version
+docker run -p 8080:8080 ghcr.io/modelcontextprotocol/registry:v1.0.0
+
+# Run development build from main branch
+docker run -p 8080:8080 ghcr.io/modelcontextprotocol/registry:main-20250906-abc123d
+```
+
+**Available tags:** 
+- **Releases**: `latest`, `v1.0.0`, `v1.1.0`, etc.
+- **Continuous**: `main` (latest main branch build)
+- **Development**: `main-<date>-<sha>` (specific commit builds)
+
+</details>
+
+#### Publishing a server
+
+To publish a server, we've built a simple CLI. You can use it with:
+
+```bash
+# Build the latest CLI
+make publisher
+
+# Use it!
+./bin/mcp-publisher --help
+```
+
+See [the publisher guide](./docs/guides/publishing/publish-server.md) for more details.
+
+#### Other commands
+
+```bash
+# Run lint, unit tests and integration tests
+make check
+```
+
+There are also a few more helpful commands for development. Run `make help` to learn more, or look in [Makefile](./Makefile).
+
+<!--
+For Claude and other AI tools: Always prefer make targets over custom commands where possible.
+-->
+
+## Architecture
+
+### Project Structure
+
+```
+├── cmd/                     # Application entry points
+│   └── publisher/           # Server publishing tool
+├── data/                    # Seed data
+├── deploy/                  # Deployment configuration (Pulumi)
+├── docs/                    # Documentation
+├── internal/                # Private application code
+│   ├── api/                 # HTTP handlers and routing
+│   ├── auth/                # Authentication (GitHub OAuth, JWT, namespace blocking)
+│   ├── config/              # Configuration management
+│   ├── database/            # Data persistence (PostgreSQL, in-memory)
+│   ├── service/             # Business logic
+│   ├── telemetry/           # Metrics and monitoring
+│   └── validators/          # Input validation
+├── pkg/                     # Public packages
+│   ├── api/                 # API types and structures
+│   │   └── v0/              # Version 0 API types
+│   └── model/               # Data models for server.json
+├── scripts/                 # Development and testing scripts
+├── tests/                   # Integration tests
+└── tools/                   # CLI tools and utilities
+    └── validate-*.sh        # Schema validation tools
+```
+
+### Authentication
+
+Publishing supports multiple authentication methods:
+- **GitHub OAuth** - For publishing by logging into GitHub
+- **GitHub OIDC** - For publishing from GitHub Actions
+- **DNS verification** - For proving ownership of a domain and its subdomains
+- **HTTP verification** - For proving ownership of a domain
+
+The registry validates namespace ownership when publishing. E.g. to publish...:
+- `io.github.domdomegg/my-cool-mcp` you must login to GitHub as `domdomegg`, or be in a GitHub Action on domdomegg's repos
+- `me.adamjones/my-cool-mcp` you must prove ownership of `adamjones.me` via DNS or HTTP challenge
+
+## More documentation
+
+See the [documentation](./docs) for more details if your question has not been answered here!
