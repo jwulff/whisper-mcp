@@ -348,6 +348,88 @@ describe("transcribe utility", () => {
       ).resolves.toBeDefined();
     });
 
+    it("should pass hostile file paths as a single argv element with no shell", async () => {
+      mockedExistsSync.mockReturnValue(true);
+      mockedIsModelDownloaded.mockReturnValue(true);
+
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+        if (typeof cmd === "string" && callback) {
+          if (cmd === "which") {
+            callback(null, "/bin/whisper-cli", "");
+          } else {
+            callback(null, "[00:00:00.000 --> 00:00:01.000] test", "");
+          }
+        }
+        return {} as never;
+      });
+
+      const hostile = '/tmp/a b/x"; touch /tmp/pwned; $(id) `id`.m4a';
+      const { transcribeAudio } = await import("../../src/tools/transcribe.js");
+      await transcribeAudio({ filePath: hostile, language: "en" });
+
+      const calls = mockedExecFile.mock.calls;
+      expect(calls.map((c) => c[0])).toEqual(["which", "ffmpeg", "whisper-cli"]);
+
+      for (const call of calls) {
+        // Every call uses an argv array, never a command string
+        expect(Array.isArray(call[1])).toBe(true);
+        // No call opts into a shell
+        const opts = call.find(
+          (a, i) => i > 1 && a !== null && typeof a === "object"
+        ) as { shell?: unknown } | undefined;
+        expect(opts?.shell).toBeFalsy();
+      }
+
+      const ffmpegArgs = calls[1][1] as string[];
+      expect(ffmpegArgs[ffmpegArgs.indexOf("-i") + 1]).toBe(hostile);
+
+      const whisperArgs = calls[2][1] as string[];
+      expect(whisperArgs).toEqual([
+        "-m",
+        "/Users/testuser/.whisper/ggml-base.en.bin",
+        "-f",
+        expect.stringMatching(/_whisper\.wav$/),
+        "-l",
+        "en",
+      ]);
+    });
+
+    it.each(["haw", "yue", "english", "haitian creole", "auto"])(
+      "should accept whisper.cpp language %s",
+      async (language) => {
+        mockedExistsSync.mockReturnValue(true);
+        mockedIsModelDownloaded.mockReturnValue(true);
+
+        mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+          const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+          if (typeof cmd === "string" && callback) {
+            callback(null, "[00:00:00.000 --> 00:00:01.000] test", "");
+          }
+          return {} as never;
+        });
+
+        const { transcribeAudio } = await import("../../src/tools/transcribe.js");
+        await expect(
+          transcribeAudio({ filePath: "/path/to/audio.m4a", language })
+        ).resolves.toBeDefined();
+      }
+    );
+
+    it.each(["-h", "--help", "en; id", "en$(id)", "EN", "e", ""])(
+      "should reject language %j before running any subprocess",
+      async (language) => {
+        mockedExistsSync.mockReturnValue(true);
+        mockedIsModelDownloaded.mockReturnValue(true);
+
+        const { transcribeAudio } = await import("../../src/tools/transcribe.js");
+        await expect(
+          transcribeAudio({ filePath: "/path/to/audio.m4a", language })
+        ).rejects.toThrow("Invalid language code");
+        expect(mockedExecFile).not.toHaveBeenCalled();
+      }
+    );
+
     it("should handle output with no timestamps", async () => {
       mockedExistsSync.mockReturnValue(true);
       mockedIsModelDownloaded.mockReturnValue(true);

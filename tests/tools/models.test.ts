@@ -221,6 +221,17 @@ describe("models utility", () => {
 
       expect(result.success).toBe(true);
       expect(result.message).toContain("Successfully downloaded");
+
+      // curl is invoked with an argv array and no shell
+      const [cmd, args, opts] = mockedExecFile.mock.calls[0];
+      expect(cmd).toBe("curl");
+      expect(args).toEqual([
+        "-L",
+        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
+        "-o",
+        expect.stringMatching(/ggml-base\.en\.bin$/),
+      ]);
+      expect((opts as { shell?: unknown }).shell).toBeFalsy();
     });
 
     it("should delete file if download is too small", async () => {

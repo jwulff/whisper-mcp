@@ -7,13 +7,17 @@ import { getModelPath, isModelDownloaded } from "./models.js";
 
 const execFileAsync = promisify(execFile);
 
-// Validate language parameter to prevent injection
-const LANGUAGE_REGEX = /^(?:auto|[a-z]{2}(?:-[A-Z]{2})?)$/;
+// Defense in depth: subprocesses run via execFile (no shell), so the language
+// value cannot inject commands. This check additionally rejects anything that
+// is not shaped like a whisper.cpp language: "auto", a 2-3 letter code
+// ("en", "haw", "yue"), or a lowercase language name ("english",
+// "haitian creole"). A leading "-" can never match.
+const LANGUAGE_REGEX = /^[a-z]{2,20}(?: [a-z]{2,20})?$/;
 
 function validateLanguage(language: string): void {
   if (!LANGUAGE_REGEX.test(language)) {
     throw new Error(
-      `Invalid language code: "${language}". Expected format: two-letter code (e.g., "en", "es"), optional region (e.g., "pt-BR"), or "auto".`
+      `Invalid language code: "${language}". Expected "auto", a whisper.cpp language code (e.g., "en", "es", "haw"), or a lowercase language name (e.g., "english").`
     );
   }
 }
@@ -47,18 +51,29 @@ async function convertToWav(inputPath: string): Promise<string> {
     // Still convert to ensure correct format
   }
 
-  await execFileAsync("ffmpeg", [
-    "-i",
-    inputPath,
-    "-ar",
-    "16000",
-    "-ac",
-    "1",
-    "-f",
-    "wav",
-    wavPath,
-    "-y",
-  ]);
+  // -nostats/-loglevel error keep ffmpeg's stderr small. The old shell command
+  // discarded it with 2>/dev/null; execFile buffers it, so progress output on
+  // long files could otherwise exceed maxBuffer and kill the conversion.
+  await execFileAsync(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-nostats",
+      "-loglevel",
+      "error",
+      "-i",
+      inputPath,
+      "-ar",
+      "16000",
+      "-ac",
+      "1",
+      "-f",
+      "wav",
+      wavPath,
+      "-y",
+    ],
+    { maxBuffer: 10 * 1024 * 1024 }
+  );
 
   return wavPath;
 }

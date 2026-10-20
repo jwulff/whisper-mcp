@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Fix command injection in `transcribe_audio` and `download_whisper_model`: all subprocesses now run via `execFile()` with argument arrays and no shell, and `language` is validated (#2)
+
 ### Added
 - Comprehensive test suite with 98%+ coverage
 - CONTRIBUTING.md with development guidelines
