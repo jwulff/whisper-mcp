@@ -1,11 +1,26 @@
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { getModelPath, isModelDownloaded } from "./models.js";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+// Defense in depth: subprocesses run via execFile (no shell), so the language
+// value cannot inject commands. This check additionally rejects anything that
+// is not shaped like a whisper.cpp language: "auto", a 2-3 letter code
+// ("en", "haw", "yue"), or a lowercase language name ("english",
+// "haitian creole"). A leading "-" can never match.
+const LANGUAGE_REGEX = /^[a-z]{2,20}(?: [a-z]{2,20})?$/;
+
+function validateLanguage(language: string): void {
+  if (!LANGUAGE_REGEX.test(language)) {
+    throw new Error(
+      `Invalid language code: "${language}". Expected "auto", a whisper.cpp language code (e.g., "en", "es", "haw"), or a lowercase language name (e.g., "english").`
+    );
+  }
+}
 
 export interface TranscribeOptions {
   filePath: string;
@@ -36,8 +51,28 @@ async function convertToWav(inputPath: string): Promise<string> {
     // Still convert to ensure correct format
   }
 
-  await execAsync(
-    `ffmpeg -i "${inputPath}" -ar 16000 -ac 1 -f wav "${wavPath}" -y 2>/dev/null`
+  // -nostats/-loglevel error keep ffmpeg's stderr small. The old shell command
+  // discarded it with 2>/dev/null; execFile buffers it, so progress output on
+  // long files could otherwise exceed maxBuffer and kill the conversion.
+  await execFileAsync(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-nostats",
+      "-loglevel",
+      "error",
+      "-i",
+      inputPath,
+      "-ar",
+      "16000",
+      "-ac",
+      "1",
+      "-f",
+      "wav",
+      wavPath,
+      "-y",
+    ],
+    { maxBuffer: 10 * 1024 * 1024 }
   );
 
   return wavPath;
@@ -91,9 +126,12 @@ export async function transcribeAudio(
     throw new Error(`File not found: ${filePath}`);
   }
 
+  // Validate language parameter
+  validateLanguage(language);
+
   // Check if whisper-cli is installed
   try {
-    await execAsync("which whisper-cli");
+    await execFileAsync("which", ["whisper-cli"]);
   } catch {
     throw new Error(
       "whisper-cli not found. Install with: brew install whisper-cpp"
@@ -121,8 +159,9 @@ export async function transcribeAudio(
 
   try {
     // whisper-cli outputs to stdout with timestamps by default
-    const { stdout, stderr } = await execAsync(
-      `whisper-cli -m "${modelPath}" -f "${wavPath}" -l ${language} 2>&1`,
+    const { stdout, stderr } = await execFileAsync(
+      "whisper-cli",
+      ["-m", modelPath, "-f", wavPath, "-l", language],
       { maxBuffer: 50 * 1024 * 1024 } // 50MB buffer for long transcriptions
     );
 

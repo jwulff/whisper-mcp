@@ -14,16 +14,18 @@ vi.mock("os", () => ({
 }));
 
 vi.mock("child_process", () => ({
-  exec: vi.fn(),
+  execFile: vi.fn(),
 }));
 
 vi.mock("util", () => ({
   promisify: vi.fn((fn) => {
+    // execFile callback signature: (err, stdout, stderr)
+    // promisify should return { stdout, stderr }
     return async (...args: unknown[]) => {
       return new Promise((resolve, reject) => {
-        fn(...args, (err: Error | null, result: unknown) => {
+        fn(...args, (err: Error | null, stdout: string, stderr: string) => {
           if (err) reject(err);
-          else resolve(result);
+          else resolve({ stdout, stderr });
         });
       });
     };
@@ -35,12 +37,12 @@ vi.mock("../../src/tools/models.js", () => ({
   isModelDownloaded: vi.fn(() => true),
 }));
 
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { getModelPath, isModelDownloaded } from "../../src/tools/models.js";
 
 const mockedExistsSync = vi.mocked(fs.existsSync);
 const mockedUnlinkSync = vi.mocked(fs.unlinkSync);
-const mockedExec = vi.mocked(exec);
+const mockedExecFile = vi.mocked(execFile);
 const mockedIsModelDownloaded = vi.mocked(isModelDownloaded);
 
 describe("transcribe utility", () => {
@@ -74,12 +76,12 @@ describe("transcribe utility", () => {
     it("should throw error if whisper-cli not installed", async () => {
       mockedExistsSync.mockReturnValue(true);
 
-      let callCount = 0;
-      mockedExec.mockImplementation((cmd, ...args) => {
-        const callback = typeof args[0] === "function" ? args[0] : args[1];
-        if (typeof cmd === "string" && cmd.includes("which whisper-cli")) {
-          if (typeof callback === "function") {
-            callback(new Error("not found"), null as never);
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        // Find the callback - it can be in different positions
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+        if (typeof cmd === "string" && cmd === "which") {
+          if (callback) {
+            callback(new Error("not found"), "", "");
           }
         }
         return {} as never;
@@ -96,11 +98,11 @@ describe("transcribe utility", () => {
       mockedExistsSync.mockReturnValue(true);
       mockedIsModelDownloaded.mockReturnValue(false);
 
-      mockedExec.mockImplementation((cmd, ...args) => {
-        const callback = typeof args[0] === "function" ? args[0] : args[1];
-        if (typeof cmd === "string" && cmd.includes("which whisper-cli")) {
-          if (typeof callback === "function") {
-            callback(null, { stdout: "/usr/local/bin/whisper-cli" } as never);
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+        if (typeof cmd === "string" && cmd === "which") {
+          if (callback) {
+            callback(null, "/usr/local/bin/whisper-cli", "");
           }
         }
         return {} as never;
@@ -120,21 +122,15 @@ describe("transcribe utility", () => {
       const whisperOutput = `[00:00:00.000 --> 00:00:05.000] Hello world
 [00:00:05.000 --> 00:00:10.000] This is a test`;
 
-      mockedExec.mockImplementation((cmd, ...args) => {
-        const callback = typeof args[0] === "function" ? args[0] : args[1];
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
         if (typeof cmd === "string") {
-          if (cmd.includes("which whisper-cli")) {
-            if (typeof callback === "function") {
-              callback(null, { stdout: "/usr/local/bin/whisper-cli" } as never);
-            }
-          } else if (cmd.includes("ffmpeg")) {
-            if (typeof callback === "function") {
-              callback(null, { stdout: "", stderr: "" } as never);
-            }
-          } else if (cmd.includes("whisper-cli")) {
-            if (typeof callback === "function") {
-              callback(null, { stdout: whisperOutput, stderr: "" } as never);
-            }
+          if (cmd === "which") {
+            if (callback) callback(null, "/usr/local/bin/whisper-cli", "");
+          } else if (cmd === "ffmpeg") {
+            if (callback) callback(null, "", "");
+          } else if (cmd === "whisper-cli") {
+            if (callback) callback(null, whisperOutput, "");
           }
         }
         return {} as never;
@@ -154,15 +150,13 @@ describe("transcribe utility", () => {
 
       const whisperOutput = `[00:00:00.000 --> 00:00:05.000] Hello world`;
 
-      mockedExec.mockImplementation((cmd, ...args) => {
-        const callback = typeof args[0] === "function" ? args[0] : args[1];
-        if (typeof cmd === "string") {
-          if (typeof callback === "function") {
-            if (cmd.includes("which")) {
-              callback(null, { stdout: "/usr/local/bin/whisper-cli" } as never);
-            } else {
-              callback(null, { stdout: whisperOutput, stderr: "" } as never);
-            }
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+        if (typeof cmd === "string" && callback) {
+          if (cmd === "which") {
+            callback(null, "/usr/local/bin/whisper-cli", "");
+          } else {
+            callback(null, whisperOutput, "");
           }
         }
         return {} as never;
@@ -187,13 +181,13 @@ describe("transcribe utility", () => {
 
       const whisperOutput = `[00:00:00.000 --> 00:00:05.000] Test`;
 
-      mockedExec.mockImplementation((cmd, ...args) => {
-        const callback = typeof args[0] === "function" ? args[0] : args[1];
-        if (typeof cmd === "string" && typeof callback === "function") {
-          if (cmd.includes("which")) {
-            callback(null, { stdout: "/bin/whisper-cli" } as never);
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+        if (typeof cmd === "string" && callback) {
+          if (cmd === "which") {
+            callback(null, "/bin/whisper-cli", "");
           } else {
-            callback(null, { stdout: whisperOutput, stderr: "" } as never);
+            callback(null, whisperOutput, "");
           }
         }
         return {} as never;
@@ -212,13 +206,13 @@ describe("transcribe utility", () => {
       mockedExistsSync.mockReturnValue(true);
       mockedIsModelDownloaded.mockReturnValue(true);
 
-      mockedExec.mockImplementation((cmd, ...args) => {
-        const callback = typeof args[0] === "function" ? args[0] : args[1];
-        if (typeof cmd === "string" && typeof callback === "function") {
-          if (cmd.includes("which")) {
-            callback(null, { stdout: "/bin/whisper-cli" } as never);
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+        if (typeof cmd === "string" && callback) {
+          if (cmd === "which") {
+            callback(null, "/bin/whisper-cli", "");
           } else {
-            callback(null, { stdout: "[00:00:00.000 --> 00:00:01.000] test", stderr: "" } as never);
+            callback(null, "[00:00:00.000 --> 00:00:01.000] test", "");
           }
         }
         return {} as never;
@@ -234,15 +228,15 @@ describe("transcribe utility", () => {
       mockedExistsSync.mockReturnValue(true);
       mockedIsModelDownloaded.mockReturnValue(true);
 
-      mockedExec.mockImplementation((cmd, ...args) => {
-        const callback = typeof args[0] === "function" ? args[0] : args[1];
-        if (typeof cmd === "string" && typeof callback === "function") {
-          if (cmd.includes("which")) {
-            callback(null, { stdout: "/bin/whisper-cli" } as never);
-          } else if (cmd.includes("ffmpeg")) {
-            callback(null, { stdout: "", stderr: "" } as never);
-          } else if (cmd.includes("whisper-cli")) {
-            callback(new Error("Transcription failed"), null as never);
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+        if (typeof cmd === "string" && callback) {
+          if (cmd === "which") {
+            callback(null, "/bin/whisper-cli", "");
+          } else if (cmd === "ffmpeg") {
+            callback(null, "", "");
+          } else if (cmd === "whisper-cli") {
+            callback(new Error("Transcription failed"), "", "");
           }
         }
         return {} as never;
@@ -261,19 +255,13 @@ describe("transcribe utility", () => {
       mockedExistsSync.mockReturnValue(true);
       mockedIsModelDownloaded.mockReturnValue(true);
 
-      let whisperCommand = "";
-      mockedExec.mockImplementation((cmd, ...args) => {
-        const callback = typeof args[0] === "function" ? args[0] : args[1];
-        if (typeof cmd === "string") {
-          if (cmd.includes("whisper-cli") && !cmd.includes("which")) {
-            whisperCommand = cmd;
-          }
-          if (typeof callback === "function") {
-            if (cmd.includes("which")) {
-              callback(null, { stdout: "/bin/whisper-cli" } as never);
-            } else {
-              callback(null, { stdout: "[00:00:00.000 --> 00:00:01.000] test", stderr: "" } as never);
-            }
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+        if (typeof cmd === "string" && callback) {
+          if (cmd === "which") {
+            callback(null, "/bin/whisper-cli", "");
+          } else {
+            callback(null, "[00:00:00.000 --> 00:00:01.000] test", "");
           }
         }
         return {} as never;
@@ -292,18 +280,18 @@ describe("transcribe utility", () => {
       mockedExistsSync.mockReturnValue(true);
       mockedIsModelDownloaded.mockReturnValue(true);
 
-      let whisperCommand = "";
-      mockedExec.mockImplementation((cmd, ...args) => {
-        const callback = typeof args[0] === "function" ? args[0] : args[1];
+      let whisperArgs: string[] = [];
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
         if (typeof cmd === "string") {
-          if (cmd.includes("whisper-cli") && !cmd.includes("which")) {
-            whisperCommand = cmd;
+          if (cmd === "whisper-cli" && Array.isArray(cmdArgs)) {
+            whisperArgs = cmdArgs as string[];
           }
-          if (typeof callback === "function") {
-            if (cmd.includes("which")) {
-              callback(null, { stdout: "/bin/whisper-cli" } as never);
+          if (callback) {
+            if (cmd === "which") {
+              callback(null, "/bin/whisper-cli", "");
             } else {
-              callback(null, { stdout: "[00:00:00.000 --> 00:00:01.000] test", stderr: "" } as never);
+              callback(null, "[00:00:00.000 --> 00:00:01.000] test", "");
             }
           }
         }
@@ -316,8 +304,131 @@ describe("transcribe utility", () => {
         language: "es",
       });
 
-      expect(whisperCommand).toContain("-l es");
+      expect(whisperArgs).toContain("-l");
+      expect(whisperArgs).toContain("es");
     });
+
+    it("should reject invalid language codes", async () => {
+      mockedExistsSync.mockReturnValue(true);
+      mockedIsModelDownloaded.mockReturnValue(true);
+
+      const { transcribeAudio } = await import("../../src/tools/transcribe.js");
+
+      await expect(
+        transcribeAudio({
+          filePath: "/path/to/audio.m4a",
+          language: '; rm -rf /',
+        })
+      ).rejects.toThrow("Invalid language code");
+    });
+
+    it("should accept 'auto' as language", async () => {
+      mockedExistsSync.mockReturnValue(true);
+      mockedIsModelDownloaded.mockReturnValue(true);
+
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+        if (typeof cmd === "string" && callback) {
+          if (cmd === "which") {
+            callback(null, "/bin/whisper-cli", "");
+          } else {
+            callback(null, "[00:00:00.000 --> 00:00:01.000] test", "");
+          }
+        }
+        return {} as never;
+      });
+
+      const { transcribeAudio } = await import("../../src/tools/transcribe.js");
+
+      await expect(
+        transcribeAudio({
+          filePath: "/path/to/audio.m4a",
+          language: "auto",
+        })
+      ).resolves.toBeDefined();
+    });
+
+    it("should pass hostile file paths as a single argv element with no shell", async () => {
+      mockedExistsSync.mockReturnValue(true);
+      mockedIsModelDownloaded.mockReturnValue(true);
+
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+        if (typeof cmd === "string" && callback) {
+          if (cmd === "which") {
+            callback(null, "/bin/whisper-cli", "");
+          } else {
+            callback(null, "[00:00:00.000 --> 00:00:01.000] test", "");
+          }
+        }
+        return {} as never;
+      });
+
+      const hostile = '/tmp/a b/x"; touch /tmp/pwned; $(id) `id`.m4a';
+      const { transcribeAudio } = await import("../../src/tools/transcribe.js");
+      await transcribeAudio({ filePath: hostile, language: "en" });
+
+      const calls = mockedExecFile.mock.calls;
+      expect(calls.map((c) => c[0])).toEqual(["which", "ffmpeg", "whisper-cli"]);
+
+      for (const call of calls) {
+        // Every call uses an argv array, never a command string
+        expect(Array.isArray(call[1])).toBe(true);
+        // No call opts into a shell
+        const opts = call.find(
+          (a, i) => i > 1 && a !== null && typeof a === "object"
+        ) as { shell?: unknown } | undefined;
+        expect(opts?.shell).toBeFalsy();
+      }
+
+      const ffmpegArgs = calls[1][1] as string[];
+      expect(ffmpegArgs[ffmpegArgs.indexOf("-i") + 1]).toBe(hostile);
+
+      const whisperArgs = calls[2][1] as string[];
+      expect(whisperArgs).toEqual([
+        "-m",
+        "/Users/testuser/.whisper/ggml-base.en.bin",
+        "-f",
+        expect.stringMatching(/_whisper\.wav$/),
+        "-l",
+        "en",
+      ]);
+    });
+
+    it.each(["haw", "yue", "english", "haitian creole", "auto"])(
+      "should accept whisper.cpp language %s",
+      async (language) => {
+        mockedExistsSync.mockReturnValue(true);
+        mockedIsModelDownloaded.mockReturnValue(true);
+
+        mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+          const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+          if (typeof cmd === "string" && callback) {
+            callback(null, "[00:00:00.000 --> 00:00:01.000] test", "");
+          }
+          return {} as never;
+        });
+
+        const { transcribeAudio } = await import("../../src/tools/transcribe.js");
+        await expect(
+          transcribeAudio({ filePath: "/path/to/audio.m4a", language })
+        ).resolves.toBeDefined();
+      }
+    );
+
+    it.each(["-h", "--help", "en; id", "en$(id)", "EN", "e", ""])(
+      "should reject language %j before running any subprocess",
+      async (language) => {
+        mockedExistsSync.mockReturnValue(true);
+        mockedIsModelDownloaded.mockReturnValue(true);
+
+        const { transcribeAudio } = await import("../../src/tools/transcribe.js");
+        await expect(
+          transcribeAudio({ filePath: "/path/to/audio.m4a", language })
+        ).rejects.toThrow("Invalid language code");
+        expect(mockedExecFile).not.toHaveBeenCalled();
+      }
+    );
 
     it("should handle output with no timestamps", async () => {
       mockedExistsSync.mockReturnValue(true);
@@ -326,13 +437,13 @@ describe("transcribe utility", () => {
       const whisperOutput = `Plain text output without timestamps
 More text here`;
 
-      mockedExec.mockImplementation((cmd, ...args) => {
-        const callback = typeof args[0] === "function" ? args[0] : args[1];
-        if (typeof cmd === "string" && typeof callback === "function") {
-          if (cmd.includes("which")) {
-            callback(null, { stdout: "/bin/whisper-cli" } as never);
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+        if (typeof cmd === "string" && callback) {
+          if (cmd === "which") {
+            callback(null, "/bin/whisper-cli", "");
           } else {
-            callback(null, { stdout: whisperOutput, stderr: "" } as never);
+            callback(null, whisperOutput, "");
           }
         }
         return {} as never;
@@ -351,13 +462,13 @@ More text here`;
       const whisperOutput = `[WARN] Some warning
 Plain text here`;
 
-      mockedExec.mockImplementation((cmd, ...args) => {
-        const callback = typeof args[0] === "function" ? args[0] : args[1];
-        if (typeof cmd === "string" && typeof callback === "function") {
-          if (cmd.includes("which")) {
-            callback(null, { stdout: "/bin/whisper-cli" } as never);
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+        if (typeof cmd === "string" && callback) {
+          if (cmd === "which") {
+            callback(null, "/bin/whisper-cli", "");
           } else {
-            callback(null, { stdout: whisperOutput, stderr: "" } as never);
+            callback(null, whisperOutput, "");
           }
         }
         return {} as never;
@@ -375,13 +486,13 @@ Plain text here`;
 
       const whisperOutput = `[01:30:00.000 --> 01:30:05.000] Long recording`;
 
-      mockedExec.mockImplementation((cmd, ...args) => {
-        const callback = typeof args[0] === "function" ? args[0] : args[1];
-        if (typeof cmd === "string" && typeof callback === "function") {
-          if (cmd.includes("which")) {
-            callback(null, { stdout: "/bin/whisper-cli" } as never);
+      mockedExecFile.mockImplementation((cmd, cmdArgs, ...rest) => {
+        const callback = [cmdArgs, ...rest].find(a => typeof a === "function") as Function | undefined;
+        if (typeof cmd === "string" && callback) {
+          if (cmd === "which") {
+            callback(null, "/bin/whisper-cli", "");
           } else {
-            callback(null, { stdout: whisperOutput, stderr: "" } as never);
+            callback(null, whisperOutput, "");
           }
         }
         return {} as never;
